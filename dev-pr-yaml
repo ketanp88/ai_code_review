@@ -5,13 +5,13 @@ pr:
     include:
       - release/*
       - master
-	  - staging
+	    - staging
 
 resources:
   repositories:
-    - repository: , 
+    - repository: ai_code_review, 
       type: git
-      name: <ProjectName>/, 
+      name: <ProjectName>/ai_code_review, 
 
 pool:
   vmImage: 'windows-latest'
@@ -32,7 +32,7 @@ steps:
 # ==============================
 # Checkout AI Platform Repository
 # ==============================
-- checkout: , 
+- checkout: ai_code_review, 
   clean: true
   fetchDepth: 0
   persistCredentials: true
@@ -43,7 +43,7 @@ steps:
 - task: FileTransform@2
   displayName: 'Transform AISettings.json'
   inputs:
-    folderPath: '$(Build.SourcesDirectory)/ai_code_pilot'
+    folderPath: '$(Build.SourcesDirectory)/ai_code_review'
     enableXmlTransform: false
     jsonTargetFiles: 'AISettings.json'
 
@@ -53,7 +53,7 @@ steps:
 - task: FileTransform@2
   displayName: 'Transform ExecutionSettings.json'
   inputs:
-    folderPath: '$(Build.SourcesDirectory)/ai_code_pilot'
+    folderPath: '$(Build.SourcesDirectory)/ai_code_review'
     enableXmlTransform: false
     jsonTargetFiles: 'ExecutionSettings.json'
 
@@ -105,7 +105,7 @@ steps:
     Write-Host "CHANGING DIRECTORY"
     Write-Host "===================================="
 
-    cd "$(Build.SourcesDirectory)/ai_code_pilot"
+    cd "$(Build.SourcesDirectory)/ai_code_review"
 
     Write-Host "Current Directory:"
     Get-Location
@@ -120,7 +120,7 @@ steps:
     Write-Host "RUNNING AI REVIEW"
     Write-Host "===================================="
 
-    npx ts-node scripts/review-automation-pr.ts
+    npx ts-node scripts/review-dev-pr.ts
 
   displayName: 'Run AI Review'
   env:
