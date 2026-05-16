@@ -1,0 +1,128 @@
+trigger: none
+
+pr:
+  branches:
+    include:
+      - release/*
+      - master
+	  - staging
+
+resources:
+  repositories:
+    - repository: , 
+      type: git
+      name: <ProjectName>/, 
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  NODE_VERSION: '20.x'
+
+steps:
+
+# ==============================
+# Checkout Main Repository
+# ==============================
+- checkout: self
+  clean: true
+  fetchDepth: 0
+  persistCredentials: true
+
+# ==============================
+# Checkout AI Platform Repository
+# ==============================
+- checkout: , 
+  clean: true
+  fetchDepth: 0
+  persistCredentials: true
+
+# ==============================
+# Transform AI Settings JSON
+# ==============================
+- task: FileTransform@2
+  displayName: 'Transform AISettings.json'
+  inputs:
+    folderPath: '$(Build.SourcesDirectory)/ai_code_pilot'
+    enableXmlTransform: false
+    jsonTargetFiles: 'AISettings.json'
+
+# ==============================
+# Transform Execution Settings JSON
+# ==============================
+- task: FileTransform@2
+  displayName: 'Transform ExecutionSettings.json'
+  inputs:
+    folderPath: '$(Build.SourcesDirectory)/ai_code_pilot'
+    enableXmlTransform: false
+    jsonTargetFiles: 'ExecutionSettings.json'
+
+# ==============================
+# Install Node.js
+# ==============================
+- task: UseNode@1
+  displayName: 'Install Node.js'
+  inputs:
+    version: '20.x'
+
+# ==============================
+# Debug Folder Structure
+# ==============================
+- powershell: |
+
+    Write-Host "===================================="
+    Write-Host "BUILD SOURCES DIRECTORY"
+    Write-Host "===================================="
+
+    dir "$(Build.SourcesDirectory)"
+
+  displayName: 'Debug Source Directory'
+
+# ==============================
+# Extract PR Diff
+# ==============================
+- powershell: |
+
+    $targetBranch = "$(System.PullRequest.TargetBranch)" -replace "refs/heads/", ""
+
+    git fetch origin $targetBranch
+
+    $diffPath = "$(Build.SourcesDirectory)/pr_diff.txt"
+
+    git diff origin/$targetBranch HEAD | Out-File -FilePath $diffPath -Encoding utf8
+
+    Get-Content $diffPath
+
+  workingDirectory: '$(Build.SourcesDirectory)/$(Build.Repository.Name)'
+  displayName: 'Extract PR Diff'
+  
+# ==============================
+# Run AI Review
+# ==============================
+- powershell: |
+
+    Write-Host "===================================="
+    Write-Host "CHANGING DIRECTORY"
+    Write-Host "===================================="
+
+    cd "$(Build.SourcesDirectory)/ai_code_pilot"
+
+    Write-Host "Current Directory:"
+    Get-Location
+
+    Write-Host "===================================="
+    Write-Host "INSTALLING DEPENDENCIES"
+    Write-Host "===================================="
+
+    npm ci
+
+    Write-Host "===================================="
+    Write-Host "RUNNING AI REVIEW"
+    Write-Host "===================================="
+
+    npx ts-node scripts/review-automation-pr.ts
+
+  displayName: 'Run AI Review'
+  env:
+    BUILD_SOURCESDIRECTORY: $(Build.SourcesDirectory)
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
