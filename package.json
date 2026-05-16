@@ -1,0 +1,24 @@
+{
+  "name": "ai_code_pilot",
+  "version": "1.0.0",
+  "description": "This Project creates AI PR comments for my project",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ketanp88/ai_code_review.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "axios": "^1.16.0"
+  }
+}
