@@ -88,7 +88,9 @@ export function parseReviewToComments(
             line,
             {
                 codeSnippet: finding.codeSnippet,
+                title: finding.title,
                 explanation: finding.explanation,
+                recommendation: finding.recommendation,
             }
         );
 

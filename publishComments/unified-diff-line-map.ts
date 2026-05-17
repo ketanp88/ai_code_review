@@ -190,43 +190,104 @@ function needlesFromSnippet(snippet: string | undefined): string[] {
     return out;
 }
 
-/** Pull quoted / backticked code from explanation when snippet is missing. */
-function needlesFromExplanation(explanation: string | undefined): string[] {
-    if (!explanation?.trim()) {
-        return [];
-    }
+/** Quoted / backticked spans plus code-like tokens from review prose. */
+function needlesFromProse(...texts: (string | undefined)[]): string[] {
     const seen = new Set<string>();
     const out: string[] = [];
-    const patterns = [
+    const combined = texts.filter(Boolean).join('\n');
+    if (!combined.trim()) {
+        return [];
+    }
+
+    const quotePatterns = [
         /`([^`\n]+)`/g,
         /'([^'\n]+)'/g,
         /"([^"\n]+)"/g,
     ];
-    for (const re of patterns) {
+    for (const re of quotePatterns) {
         let m: RegExpExecArray | null;
-        while ((m = re.exec(explanation)) !== null) {
+        while ((m = re.exec(combined)) !== null) {
             collectNeedle(seen, out, m[1]);
         }
     }
+
+    const codePatterns = [
+        /await\s+this\.sleep\s*\(\s*\d+\s*\)/gi,
+        /this\.sleep\s*\(\s*\d+\s*\)/gi,
+        /\bsleep\s*\(\s*\d+\s*\)/gi,
+        /\b[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*\)/g,
+    ];
+    for (const re of codePatterns) {
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(combined)) !== null) {
+            collectNeedle(seen, out, m[0]);
+        }
+    }
+
+    const sleepSeconds = combined.match(/(\d+)\s*s\s*sleep/i);
+    if (sleepSeconds) {
+        const n = sleepSeconds[1];
+        collectNeedle(seen, out, `sleep(${n})`);
+        collectNeedle(seen, out, `await this.sleep(${n})`);
+    }
+
     return out;
 }
 
 function buildNeedles(options?: ResolveLineOptions): string[] {
     const seen = new Set<string>();
     const out: string[] = [];
+    const add = (n: string) => {
+        if (!seen.has(n)) {
+            seen.add(n);
+            out.push(n);
+        }
+    };
     for (const n of needlesFromSnippet(options?.codeSnippet)) {
-        if (!seen.has(n)) {
-            seen.add(n);
-            out.push(n);
-        }
+        add(n);
     }
-    for (const n of needlesFromExplanation(options?.explanation)) {
-        if (!seen.has(n)) {
-            seen.add(n);
-            out.push(n);
-        }
+    for (const n of needlesFromProse(
+        options?.title,
+        options?.explanation,
+        options?.recommendation
+    )) {
+        add(n);
     }
     return out;
+}
+
+/** Title/explanation mention code that is not on the candidate line (e.g. sleep vs openAISupport). */
+function lineMatchesFindingIntent(
+    info: RightSideLineInfo,
+    options?: ResolveLineOptions
+): boolean {
+    const prose = [options?.title, options?.explanation, options?.recommendation]
+        .filter(Boolean)
+        .join(' ');
+    if (!prose.trim()) {
+        return true;
+    }
+
+    const norm = normalizeLineForMatch(info.text);
+
+    const sleepMatch =
+        prose.match(/(\d+)\s*s\s*sleep/i) ??
+        prose.match(/sleep\s*\(\s*(\d+)\s*\)/i);
+    if (sleepMatch) {
+        const sec = sleepMatch[1];
+        if (
+            !norm.includes(`sleep(${sec}`) &&
+            !norm.includes(`sleep( ${sec}`)
+        ) {
+            return false;
+        }
+    }
+
+    if (/\bverifyAIResponse\b/i.test(prose) && !norm.includes('verifyAIResponse')) {
+        return false;
+    }
+
+    return true;
 }
 
 function linesMatchingNeedles(
@@ -255,6 +316,43 @@ function pickClosestLine(lines: number[], target: number): number {
     );
 }
 
+function pickBestContentLine(
+    hits: number[],
+    fileMap: Map<number, RightSideLineInfo>,
+    needles: string[],
+    candidateLine: number
+): number {
+    const insertions = hits.filter(l => fileMap.get(l)?.isInsertion);
+    const pool = insertions.length > 0 ? insertions : hits;
+
+    let bestNeedleLen = 0;
+    let best: number[] = [];
+    for (const ln of pool) {
+        const norm = normalizeLineForMatch(fileMap.get(ln)!.text);
+        for (const n of needles) {
+            if (!norm.includes(n) && !n.includes(norm)) {
+                continue;
+            }
+            if (n.length > bestNeedleLen) {
+                bestNeedleLen = n.length;
+                best = [ln];
+            } else if (n.length === bestNeedleLen) {
+                best.push(ln);
+            }
+        }
+    }
+    if (best.length === 1) {
+        return best[0];
+    }
+    if (best.length > 1) {
+        return pickClosestLine(best, candidateLine);
+    }
+    if (pool.length === 1) {
+        return pool[0];
+    }
+    return pickClosestLine(pool, candidateLine);
+}
+
 /**
  * Resolve line from codeSnippet / changed lines when the model line is missing or wrong.
  */
@@ -267,10 +365,7 @@ function resolveLineByContent(
     if (hits.length === 0) {
         return null;
     }
-    if (hits.length === 1) {
-        return hits[0];
-    }
-    return pickClosestLine(hits, candidateLine);
+    return pickBestContentLine(hits, fileMap, needles, candidateLine);
 }
 
 function lineMatchesNeedles(
@@ -348,7 +443,9 @@ export interface ResolvedCommentLine {
  */
 export interface ResolveLineOptions {
     codeSnippet?: string;
+    title?: string;
     explanation?: string;
+    recommendation?: string;
 }
 
 export function resolveLineAgainstDiff(
@@ -361,7 +458,10 @@ export function resolveLineAgainstDiff(
     const needles = buildNeedles(options);
 
     if (!maps || maps.size === 0) {
-        return { lineNumber: line, adjusted: false, anchorable: true };
+        console.warn(
+            `[AI Code Pilot][Azure] no PR diff line map — cannot verify line ${line} for "${findingFilePath}"`
+        );
+        return { lineNumber: line, adjusted: false, anchorable: false };
     }
 
     const norm = normalizeFilePathForAzure(findingFilePath);
@@ -369,9 +469,9 @@ export function resolveLineAgainstDiff(
 
     if (!fileMap || fileMap.size === 0) {
         console.warn(
-            `[AI Code Pilot][Azure] no diff hunks for "${norm}" — using raw line ${line}`
+            `[AI Code Pilot][Azure] no diff hunks for "${norm}" — inline comment skipped (line ${line})`
         );
-        return { lineNumber: line, adjusted: false, anchorable: true };
+        return { lineNumber: line, adjusted: false, anchorable: false };
     }
 
     const byContent = resolveLineByContent(fileMap, line, needles);
@@ -392,7 +492,10 @@ export function resolveLineAgainstDiff(
 
     if (fileMap.has(line)) {
         const info = fileMap.get(line)!;
-        if (lineMatchesNeedles(info, needles)) {
+        if (
+            lineMatchesNeedles(info, needles) &&
+            lineMatchesFindingIntent(info, options)
+        ) {
             return {
                 lineNumber: line,
                 sourceLineText: info.text,

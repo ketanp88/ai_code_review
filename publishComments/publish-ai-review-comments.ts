@@ -29,10 +29,19 @@ export async function publishAiReviewComments(
     }
 
     const service = new AIReviewCommentService(config);
+    const parsedDiff = prDiffText?.trim().length
+        ? parseDiffFiles(prDiffText)
+        : [];
     const rightSideMaps =
-        prDiffText?.trim().length
-            ? buildRightSideLineMaps(parseDiffFiles(prDiffText))
+        parsedDiff.length > 0
+            ? buildRightSideLineMaps(parsedDiff)
             : null;
+
+    if (prDiffText?.trim().length && parsedDiff.length === 0) {
+        console.warn(
+            `${LOG_PREFIX} pr_diff.txt did not parse into any files — inline comments will be skipped. Ensure it is a raw git diff (starts with "diff --git").`
+        );
+    }
 
     const inlineComments = parseAgentResultsToComments(
         agentResults,
