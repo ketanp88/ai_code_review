@@ -164,11 +164,135 @@ function pickMapForFinding(
  * 2) prefer insertion (`+`) lines at that distance (actual changes)
  * 3) on ties, prefer higher line number (avoids snapping “above” when distances tie)
  */
+function normalizeLineForMatch(text: string): string {
+    return text.replace(/\r\n?$/, '').replace(/\s+/g, ' ').trim();
+}
+
+function collectNeedle(seen: Set<string>, out: string[], raw: string): void {
+    const n = normalizeLineForMatch(raw);
+    if (n.length < 8 || seen.has(n)) {
+        return;
+    }
+    seen.add(n);
+    out.push(n);
+}
+
+/** Lines long enough to disambiguate (skip `{`, `}`, blank). */
+function needlesFromSnippet(snippet: string | undefined): string[] {
+    if (!snippet?.trim()) {
+        return [];
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of snippet.split(/\r?\n/)) {
+        collectNeedle(seen, out, raw);
+    }
+    return out;
+}
+
+/** Pull quoted / backticked code from explanation when snippet is missing. */
+function needlesFromExplanation(explanation: string | undefined): string[] {
+    if (!explanation?.trim()) {
+        return [];
+    }
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const patterns = [
+        /`([^`\n]+)`/g,
+        /'([^'\n]+)'/g,
+        /"([^"\n]+)"/g,
+    ];
+    for (const re of patterns) {
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(explanation)) !== null) {
+            collectNeedle(seen, out, m[1]);
+        }
+    }
+    return out;
+}
+
+function buildNeedles(options?: ResolveLineOptions): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const n of needlesFromSnippet(options?.codeSnippet)) {
+        if (!seen.has(n)) {
+            seen.add(n);
+            out.push(n);
+        }
+    }
+    for (const n of needlesFromExplanation(options?.explanation)) {
+        if (!seen.has(n)) {
+            seen.add(n);
+            out.push(n);
+        }
+    }
+    return out;
+}
+
+function linesMatchingNeedles(
+    fileMap: Map<number, RightSideLineInfo>,
+    needles: string[]
+): number[] {
+    if (needles.length === 0) {
+        return [];
+    }
+    const hits: number[] = [];
+    for (const [lineNo, info] of fileMap) {
+        const norm = normalizeLineForMatch(info.text);
+        if (!norm) {
+            continue;
+        }
+        if (needles.some(n => norm === n || norm.includes(n) || n.includes(norm))) {
+            hits.push(lineNo);
+        }
+    }
+    return hits;
+}
+
+function pickClosestLine(lines: number[], target: number): number {
+    return lines.reduce((best, x) =>
+        Math.abs(x - target) < Math.abs(best - target) ? x : best
+    );
+}
+
+/**
+ * Resolve line from codeSnippet / changed lines when the model line is missing or wrong.
+ */
+function resolveLineByContent(
+    fileMap: Map<number, RightSideLineInfo>,
+    candidateLine: number,
+    needles: string[]
+): number | null {
+    const hits = linesMatchingNeedles(fileMap, needles);
+    if (hits.length === 0) {
+        return null;
+    }
+    if (hits.length === 1) {
+        return hits[0];
+    }
+    return pickClosestLine(hits, candidateLine);
+}
+
+function lineMatchesNeedles(
+    info: RightSideLineInfo,
+    needles: string[]
+): boolean {
+    if (needles.length === 0) {
+        return true;
+    }
+    const norm = normalizeLineForMatch(info.text);
+    if (!norm) {
+        return false;
+    }
+    return needles.some(n => norm === n || norm.includes(n) || n.includes(norm));
+}
+
 function pickBestSnapLine(
     sortedLines: number[],
     candidate: number,
     maxDist: number,
-    lineInfo: Map<number, RightSideLineInfo>
+    lineInfo: Map<number, RightSideLineInfo>,
+    needles: string[] = []
 ): number | null {
     let bestDist = maxDist + 1;
     const pool: number[] = [];
@@ -190,12 +314,21 @@ function pickBestSnapLine(
     if (pool.length === 0) {
         return null;
     }
-    if (pool.length === 1) {
-        return pool[0];
+
+    const contentMatches = pool.filter(x =>
+        lineMatchesNeedles(lineInfo.get(x)!, needles)
+    );
+    if (needles.length > 0 && contentMatches.length === 0) {
+        return null;
+    }
+    const contentPool = contentMatches.length > 0 ? contentMatches : pool;
+
+    if (contentPool.length === 1) {
+        return contentPool[0];
     }
 
-    const insertions = pool.filter(x => lineInfo.get(x)?.isInsertion);
-    const narrowed = insertions.length > 0 ? insertions : pool;
+    const insertions = contentPool.filter(x => lineInfo.get(x)?.isInsertion);
+    const narrowed = insertions.length > 0 ? insertions : contentPool;
     return Math.max(...narrowed);
 }
 
@@ -205,21 +338,30 @@ export interface ResolvedCommentLine {
     sourceLineText?: string;
     /** Model line differed from anchor Azure used. */
     adjusted: boolean;
+    /** False when the line is not on the PR diff and cannot be resolved — do not post inline. */
+    anchorable: boolean;
 }
 
 /**
  * Maps model `(file, line)` to a line that exists on the PR diff **right** side.
  * Azure threads anchor to those coordinates; model counts often drift by a few lines.
  */
+export interface ResolveLineOptions {
+    codeSnippet?: string;
+    explanation?: string;
+}
+
 export function resolveLineAgainstDiff(
     maps: RightSideLineMaps | null | undefined,
     findingFilePath: string,
-    candidateLine: number
+    candidateLine: number,
+    options?: ResolveLineOptions
 ): ResolvedCommentLine {
     const line = Math.max(1, Math.floor(candidateLine));
+    const needles = buildNeedles(options);
 
     if (!maps || maps.size === 0) {
-        return { lineNumber: line, adjusted: false };
+        return { lineNumber: line, adjusted: false, anchorable: true };
     }
 
     const norm = normalizeFilePathForAzure(findingFilePath);
@@ -229,33 +371,58 @@ export function resolveLineAgainstDiff(
         console.warn(
             `[AI Code Pilot][Azure] no diff hunks for "${norm}" — using raw line ${line}`
         );
-        return { lineNumber: line, adjusted: false };
+        return { lineNumber: line, adjusted: false, anchorable: true };
+    }
+
+    const byContent = resolveLineByContent(fileMap, line, needles);
+    if (byContent != null) {
+        const info = fileMap.get(byContent)!;
+        if (byContent !== line) {
+            console.log(
+                `[AI Code Pilot][Azure] anchored "${norm}" at line ${byContent} via codeSnippet (model line ${line})`
+            );
+        }
+        return {
+            lineNumber: byContent,
+            sourceLineText: info.text,
+            adjusted: byContent !== line,
+            anchorable: true,
+        };
     }
 
     if (fileMap.has(line)) {
         const info = fileMap.get(line)!;
-        return {
-            lineNumber: line,
-            sourceLineText: info.text,
-            adjusted: false,
-        };
+        if (lineMatchesNeedles(info, needles)) {
+            return {
+                lineNumber: line,
+                sourceLineText: info.text,
+                adjusted: false,
+                anchorable: true,
+            };
+        }
     }
 
     const sorted = [...fileMap.keys()].sort((a, b) => a - b);
     const maxDist = snapMaxDistance();
-    const snapped = pickBestSnapLine(sorted, line, maxDist, fileMap);
+    const snapped = pickBestSnapLine(sorted, line, maxDist, fileMap, needles);
 
     if (snapped == null) {
         console.warn(
-            `[AI Code Pilot][Azure] line ${line} not on PR diff right side for "${norm}" (snap max ${maxDist}) — using raw line`
+            `[AI Code Pilot][Azure] line ${line} not on PR diff right side for "${norm}" (snap max ${maxDist}) — inline comment skipped`
         );
-        return { lineNumber: line, adjusted: false };
+        return { lineNumber: line, adjusted: false, anchorable: false };
     }
 
     const info = fileMap.get(snapped)!;
+    if (snapped !== line) {
+        console.log(
+            `[AI Code Pilot][Azure] snapped "${norm}" from line ${line} to ${snapped}`
+        );
+    }
     return {
         lineNumber: snapped,
         sourceLineText: info.text,
         adjusted: snapped !== line,
+        anchorable: true,
     };
 }

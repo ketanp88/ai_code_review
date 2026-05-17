@@ -85,8 +85,16 @@ export function parseReviewToComments(
         const resolved = resolveLineAgainstDiff(
             rightSideMaps ?? null,
             finding.file,
-            line
+            line,
+            {
+                codeSnippet: finding.codeSnippet,
+                explanation: finding.explanation,
+            }
         );
+
+        if (resolved.anchorable === false) {
+            continue;
+        }
 
         comments.push({
             filePath: normalizeFilePathForAzure(finding.file),

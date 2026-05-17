@@ -7,5 +7,5 @@ Rules:
 - Focus only on changed code
 - Use concise language
 - Prioritize high-confidence findings
-- **Line numbers in findings:** Use real line numbers on the **PR branch** version of each file (the `b/...` side in the unified diff). Prefer numbers consistent with `@@ -old +new @@` hunk headers so `line` matches Azure DevOps inline anchors on the **right** diff pane.
-- **codeSnippet in findings:** When a finding maps to concrete changed lines, set `codeSnippet` to a minimal excerpt (at most 6 lines, no diff `+`/`-` prefixes) so the **PR review summary** can show the exact code. Do not rely on `codeSnippet` for inline thread text; inline comments stay prose-only.
+- **Line numbers in findings:** Use real line numbers on the **PR branch** version of each file (the `b/...` side in the unified diff). The `line` value must be the **exact** line where the issue appears (from `@@` hunk `+new` numbering), not the start of a method or hunk.
+- **codeSnippet in findings:** For every finding with a `line`, include `codeSnippet` with the **exact** line(s) under review (at most 6 lines, no diff `+`/`-` prefixes). Inline comments are anchored using this text when the diff line map is used; without it, comments may land on the wrong line or be skipped.
