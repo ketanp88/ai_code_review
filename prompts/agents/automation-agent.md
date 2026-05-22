@@ -181,36 +181,21 @@ Ignore LOW severity findings unless they may significantly impact execution reli
 
 # OUTPUT FORMAT
 
-Return markdown in the following format.
+All narrative content goes inside the JSON `summary` field as markdown. Use these section headings inside the `summary` string (omit any section that has no findings):
 
-# Automation Review Summary
+- `# Automation Review Summary`
+- `# Automation Findings`
+- `# Flakiness & Stability Concerns`
+- `# Assertion & Validation Concerns`
+- `# CI/CD Automation Concerns`
+- `# Framework Maintainability Concerns`
+- `# Overall Automation Assessment`
 
-# Automation Findings
+Inside each section, bullets must start with the file location in backticks: `` `path/to/file.ext:LINE` ``, followed by a short bold label and the explanation. When relevant, include a small fenced code block (3–6 lines max, language hint `ts` / `js` / `feature`) of the changed lines.
 
-For each finding include:
+Capture every finding's structured details (severity, file, line, title, explanation, recommendation, codeSnippet) in the `findings` array of the JSON response (schema below) — do **not** duplicate the full structured detail in the `summary` text.
 
-- Severity
-- File
-- Automation Concern
-- Execution Impact
-- Explanation
-- Recommended Improvement
-
-# Flakiness & Stability Concerns
-
-# Assertion & Validation Concerns
-
-# CI/CD Automation Concerns
-
-# Framework Maintainability Concerns
-
-# Overall Automation Assessment
-
-Use concise and professional language.
-
-Do not repeat the PR diff.
-
-Do not generate unnecessary code rewrites.
+Use concise, professional language. Do not repeat the PR diff. Do not generate unnecessary code rewrites.
 
 # RESPONSE REQUIREMENTS
 

@@ -1,1 +1,4 @@
 /node_modules
+
+# Local / pipeline diff captures used for manual testing
+pr_diff.txt

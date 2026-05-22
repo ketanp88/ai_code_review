@@ -188,36 +188,21 @@ Ignore LOW severity findings unless they may significantly impact deployment sta
 
 # OUTPUT FORMAT
 
-Return markdown in the following format.
+All narrative content goes inside the JSON `summary` field as markdown. Use these section headings inside the `summary` string (omit any section that has no findings):
 
-# DevOps Review Summary
+- `# DevOps Review Summary`
+- `# DevOps Findings`
+- `# CI/CD Pipeline Concerns`
+- `# Deployment & Release Concerns`
+- `# Infrastructure & Configuration Concerns`
+- `# Secrets & Environment Concerns`
+- `# Overall DevOps Assessment`
 
-# DevOps Findings
+Inside each section, bullets must start with the file location in backticks: `` `path/to/file.ext:LINE` ``, followed by a short bold label and the explanation. When relevant, include a small fenced code block (3–6 lines max, language hint `yaml` / `powershell` / `bash` / `hcl` / `dockerfile`) of the changed lines.
 
-For each finding include:
+Capture every finding's structured details (severity, file, line, title, explanation, recommendation, codeSnippet) in the `findings` array of the JSON response (schema below) — do **not** duplicate the full structured detail in the `summary` text.
 
-- Severity
-- File
-- DevOps Concern
-- Operational Impact
-- Explanation
-- Recommended Improvement
-
-# CI/CD Pipeline Concerns
-
-# Deployment & Release Concerns
-
-# Infrastructure & Configuration Concerns
-
-# Secrets & Environment Concerns
-
-# Overall DevOps Assessment
-
-Use concise and professional language.
-
-Do not repeat the PR diff.
-
-Do not generate unnecessary code rewrites.
+Use concise, professional language. Do not repeat the PR diff. Do not generate unnecessary code rewrites.
 
 # RESPONSE REQUIREMENTS
 

@@ -72,8 +72,7 @@ Always runs:
 | `security-agent` | All changed files (`*`) |
 | `architecture-agent` | All changed files (`*`) |
 | `performance-agent` | `.cs`, `.sql`, `.ts`, `.tsx`, `.js`, `.cshtml` |
-| `frontend-agent` | UI assets and markup |
-| `react-agent` | `.tsx`, `.jsx` |
+| `ui-agent` | `.tsx`, `.jsx`, `.css`, `.scss`, `.sass`, `.html`, `.cshtml`, `.svg`, `.js`, `.ts` — unified React + frontend reviewer (replaces former `react-agent` + `frontend-agent`) |
 | `dotNet-agent` | `.cs`, `.csproj`, `.sln`, `.config` |
 
 **Additionally**, if the diff contains DevOps-related paths (`.yml`, `Dockerfile`, `.tf`, etc.), `devops-agent` is included automatically. You do not need a separate infra pipeline job unless you want different scheduling.
@@ -128,7 +127,6 @@ Do not commit real keys to source control. In pipelines, use **File Transform** 
 | `SYSTEM_TEAMFOUNDATIONCOLLECTIONURI` / `SYSTEM_COLLECTIONURI` | Organization URL |
 | `SYSTEM_PULLREQUEST_PULLREQUESTID` | PR id for comments and links |
 | `SYSTEM_PULLREQUEST_PULLREQUESTNUMBER` | Display number in Teams title |
-| `BUILD_SOURCEVERSIONMESSAGE` | Fallback PR id in some scripts (legacy) |
 
 **Optional overrides**
 

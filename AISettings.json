@@ -3,5 +3,6 @@
     "ModelName": "",
     "ModelDeploymentName": "",
     "ModelTemperature": 0.2,
+    "MaxModelInputBytes": 500000,
     "AIModelKey": ""
 }

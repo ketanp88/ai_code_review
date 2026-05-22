@@ -121,6 +121,25 @@ export function parseAgentResultsToComments(
     );
 }
 
+/**
+ * Prefer per-agent findings for inline threads; if none anchor, try the summary agent output.
+ */
+export function collectInlineComments(
+    agentResults: AgentResult[],
+    summaryReview: AiReviewResult,
+    rightSideMaps?: RightSideLineMaps | null
+): AIReviewComment[] {
+    const fromAgents = parseAgentResultsToComments(
+        agentResults,
+        rightSideMaps
+    );
+    if (fromAgents.length > 0) {
+        return fromAgents;
+    }
+
+    return parseReviewToComments(summaryReview, rightSideMaps);
+}
+
 export function formatSummaryComment(review: AiReviewResult): string {
     const readiness = review.deploymentReadiness ?? 'UNKNOWN';
     const findingsBlock =

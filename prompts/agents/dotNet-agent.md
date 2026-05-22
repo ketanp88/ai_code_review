@@ -18,20 +18,17 @@ Avoid speculative or low-value comments.
 
 # FILE SCOPE RESTRICTION
 
-ONLY analyze files related to:
+ONLY analyze .NET / ASP.NET Core files:
 
-- .cs
-- .csproj
-- .sln
-- appsettings.json
-- web.config
-- Program.cs
-- Startup.cs
-- Entity Framework configurations
-- ASP.NET Core middleware
-- .NET APIs
-- Background services
-- Dependency injection configuration
+- `.cs` source files (controllers, services, repositories, middleware, hosted/background services)
+- `.cshtml` Razor views and `.razor` Blazor components — review C# / Razor logic, model binding, server-side validation, and any inline `@code { }` / `@{ }` blocks. Leave HTML / CSS / UX styling concerns to the `ui-agent`.
+- `.csproj`, `.sln` project / solution files
+- `.config` files (web.config, app.config, packages.config) — security, transformation, and binding-redirect concerns
+- `appsettings.json` and environment variants (`appsettings.Development.json`, `appsettings.Production.json`, etc.)
+- `launchSettings.json`
+- `Program.cs` / `Startup.cs` (dependency-injection wiring, middleware order)
+- Entity Framework configurations and migrations
+- .NET API endpoints and minimal API definitions
 
 Ignore all other file types.
 
@@ -171,35 +168,20 @@ Ignore LOW severity findings unless they may impact production reliability or ru
 
 # OUTPUT FORMAT
 
-Return markdown in the following format.
+All narrative content goes inside the JSON `summary` field as markdown. Use these section headings inside the `summary` string (omit any section that has no findings):
 
-# .NET Review Summary
+- `# .NET Review Summary`
+- `# .NET Findings`
+- `# ASP.NET Core Concerns`
+- `# Entity Framework Concerns`
+- `# Async/Threading Concerns`
+- `# Overall .NET Assessment`
 
-# .NET Findings
+Inside each section, bullets must start with the file location in backticks: `` `path/to/file.ext:LINE` ``, followed by a short bold label and the explanation. When relevant, include a small fenced code block (3–6 lines max, language hint `csharp` / `cshtml` / `razor` / `json`) of the changed lines.
 
-For each finding include:
+Capture every finding's structured details (severity, file, line, title, explanation, recommendation, codeSnippet) in the `findings` array of the JSON response (schema below) — do **not** duplicate the full structured detail in the `summary` text.
 
-- Severity
-- File
-- .NET Concern
-- Explanation
-- Runtime Impact
-- Recommended Improvement
-
-# ASP.NET Core Concerns
-
-# Entity Framework Concerns
-
-# Async/Threading Concerns
-
-# Overall .NET Assessment
-
-Use concise and professional language.
-
-Do not repeat the PR diff.
-
-Do not generate unnecessary code rewrites.
-
+Use concise, professional language. Do not repeat the PR diff. Do not generate unnecessary code rewrites.
 
 # RESPONSE REQUIREMENTS
 

@@ -2,8 +2,7 @@ export const DEVELOPMENT_AGENTS = [
     'security-agent',
     'architecture-agent',
     'performance-agent',
-    'frontend-agent',
-    'react-agent',
+    'ui-agent',
     'dotNet-agent'
 ];
 

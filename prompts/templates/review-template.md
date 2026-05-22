@@ -1,11 +1,5 @@
-Return the review in the following format:
+Return ONLY a single valid JSON object (no markdown fences, no prose before or after).
 
-# Summary
+Put human-readable sections inside the `summary` string using markdown headings such as `# Summary`, `# Risks`, `# Code Quality Issues`, `# Security Concerns`, and `# Suggested Improvements`.
 
-# Risks
-
-# Code Quality Issues
-
-# Security Concerns
-
-# Suggested Improvements
+Use the exact JSON schema defined in the agent instructions above.

@@ -1,10 +1,10 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import { buildPrompt } from './prompt-builder';
 import aiSettings from '../AISettings.json';
-import { parseDiffFiles } from './diff-parser';
 import { AiReviewResult } from '../models/ai-review-result';
 import { extractResponseText } from './extract-response-text';
 import { parseAiJson } from './parse-ai-json';
+import { fitModelInputContent } from './fit-model-input';
 
 function firstNonEmpty(
     ...values: (string | undefined)[]
@@ -88,6 +88,129 @@ function resolveValidatedAiEndpoint(): string {
     return candidate.replace(/\/+$/, '');
 }
 
+/** True when the configured URL targets the OpenAI / Azure Responses API. */
+function usesResponsesApi(endpoint: string): boolean {
+    return /\/responses(\/|\?|$)/i.test(endpoint);
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function envPositiveInt(name: string, fallback: number): number {
+    const v = process.env[name]?.trim();
+    if (!v) {
+        return fallback;
+    }
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Parses `Retry-After` (seconds) from response headers when the provider sends it.
+ */
+function parseRetryAfterMs(
+    headers: Record<string, string | number | string[] | undefined>
+): number | undefined {
+    const raw = headers['retry-after'] ?? headers['Retry-After'];
+    if (raw == null) {
+        return undefined;
+    }
+    const token = Array.isArray(raw) ? raw[0] : raw;
+    const seconds = parseInt(String(token), 10);
+    return Number.isFinite(seconds) && seconds >= 0
+        ? seconds * 1000
+        : undefined;
+}
+
+const DEFAULT_AI_MAX_RETRIES = 8;
+
+async function postAiWithRetry(
+    endpoint: string,
+    body: Record<string, unknown>,
+    requestHeaders: Record<string, string>
+): Promise<AxiosResponse> {
+    const maxAttempts = envPositiveInt(
+        'AI_CODE_PILOT_MAX_RETRIES',
+        DEFAULT_AI_MAX_RETRIES
+    );
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await axios.post(endpoint, body, {
+                headers: requestHeaders,
+            });
+        } catch (err: unknown) {
+            if (!axios.isAxiosError(err) || !err.response) {
+                throw err;
+            }
+            const status = err.response.status;
+            const retryable =
+                status === 429 ||
+                status === 502 ||
+                status === 503 ||
+                status === 504;
+            if (!retryable || attempt === maxAttempts) {
+                throw err;
+            }
+            const headerDelay = parseRetryAfterMs(
+                err.response.headers as Record<
+                    string,
+                    string | number | string[] | undefined
+                >
+            );
+            const exponential = Math.min(
+                120_000,
+                1000 * Math.pow(2, attempt - 1)
+            );
+            const jitter = Math.floor(Math.random() * 500);
+            const delayMs = (headerDelay ?? exponential) + jitter;
+            console.warn(
+                `AI HTTP ${status}; backing off ${delayMs}ms ` +
+                    `(attempt ${attempt}/${maxAttempts}).`
+            );
+            await sleep(delayMs);
+        }
+    }
+
+    throw new Error('postAiWithRetry: unreachable');
+}
+
+function buildAiRequestBody(
+    endpoint: string,
+    model: string,
+    content: string
+): Record<string, unknown> {
+    const temperature =
+        typeof aiSettings.ModelTemperature === 'number'
+            ? aiSettings.ModelTemperature
+            : 0.2;
+
+    if (usesResponsesApi(endpoint)) {
+        return {
+            model,
+            input: [
+                {
+                    role: 'user',
+                    content
+                }
+            ]
+        };
+    }
+
+    return {
+        model,
+        messages: [
+            {
+                role: 'user',
+                content
+            }
+        ],
+        temperature,
+        response_format: { type: 'json_object' }
+    };
+}
+
 export interface AgentResult {
     agentName: string;
     review: AiReviewResult;
@@ -116,44 +239,39 @@ export async function runAgent(
         );
     }
 
-    const parsedFiles = parseDiffFiles(diff);
-
-    const prompt = buildPrompt({
-        agentName,
-        diff
-    });
-
-    const modelInput = {
+    const buildPayload = (diffText: string) => ({
         repository: process.env.BUILD_REPOSITORY_NAME ?? '',
         pullRequestId:
             firstNonEmpty(
                 process.env.SYSTEM_PULLREQUEST_PULLREQUESTID,
-                process.env.BUILD_SOURCEVERSIONMESSAGE
+                process.env.AZURE_DEVOPS_PULL_REQUEST_ID
             ) ?? '',
         agent: agentName,
-        instructions: prompt,
-        parsedFiles,
+        instructions: buildPrompt({
+            agentName,
+            diff: diffText
+        })
+    });
+
+    const { content, truncated } = fitModelInputContent(
+        buildPayload,
         diff
-    };
+    );
+
+    if (truncated) {
+        console.warn(
+            `Agent ${agentName}: PR diff was truncated to fit API input limits.`
+        );
+    }
 
     let response;
     try {
-        response = await axios.post(
+        response = await postAiWithRetry(
             endpoint,
+            buildAiRequestBody(endpoint, model, content),
             {
-                model,
-                input: [
-                    {
-                        role: 'user',
-                        content: JSON.stringify(modelInput)
-                    }
-                ]
-            },
-            {
-                headers: {
-                    'api-key': apiKey,
-                    'Content-Type': 'application/json',
-                },
+                'api-key': apiKey,
+                'Content-Type': 'application/json',
             }
         );
     } catch (err: unknown) {
@@ -173,7 +291,34 @@ export async function runAgent(
     }
 
     const text = extractResponseText(response.data);
-    const parsed = parseAiJson<AiReviewResult>(text);
+
+    if (!text) {
+        throw new Error(
+            'Could not extract text from the AI HTTP response. ' +
+            'Use a /responses URL with an `input` body, or a chat/completions URL with `messages`. ' +
+            'Set AI_CODE_PILOT_VERBOSE=true to log the raw response.'
+        );
+    }
+
+    let parsed: AiReviewResult;
+    try {
+        parsed = parseAiJson<AiReviewResult>(text);
+    } catch (error: unknown) {
+        const preview = text.length > 400
+            ? `${text.slice(0, 400)}…`
+            : text;
+
+        if (
+            error instanceof Error &&
+            error.message.includes('No JSON object found')
+        ) {
+            throw new Error(
+                `${error.message} Model output preview: ${JSON.stringify(preview)}`
+            );
+        }
+
+        throw error;
+    }
 
     return {
         agentName,

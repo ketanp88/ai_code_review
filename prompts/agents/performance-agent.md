@@ -140,32 +140,19 @@ Ignore LOW severity findings unless they may significantly impact production per
 
 # OUTPUT FORMAT
 
-Return markdown in the following format.
+All narrative content goes inside the JSON `summary` field as markdown. Use these section headings inside the `summary` string (omit any section that has no findings):
 
-# Performance Review Summary
+- `# Performance Review Summary`
+- `# Performance Findings`
+- `# Scalability Risks`
+- `# Resource Utilization Concerns`
+- `# Overall Performance Assessment`
 
-# Performance Findings
+Inside each section, bullets must start with the file location in backticks: `` `path/to/file.ext:LINE` ``, followed by a short bold label and the explanation. When relevant, include a small fenced code block (3–6 lines max) of the changed lines.
 
-For each finding include:
+Capture every finding's structured details (severity, file, line, title, explanation, recommendation, codeSnippet) in the `findings` array of the JSON response (schema below) — do **not** duplicate the full structured detail in the `summary` text.
 
-- Severity
-- File
-- Performance Concern
-- Performance Impact
-- Explanation
-- Recommended Optimization
-
-# Scalability Risks
-
-# Resource Utilization Concerns
-
-# Overall Performance Assessment
-
-Use concise and professional language.
-
-Do not repeat the PR diff.
-
-Do not generate unnecessary code rewrites.
+Use concise, professional language. Do not repeat the PR diff. Do not generate unnecessary code rewrites.
 
 # RESPONSE REQUIREMENTS
 

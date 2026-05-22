@@ -52,6 +52,7 @@ Review the PR diff for:
 - Broken access control
 - Sensitive headers missing
 - CORS misconfiguration
+- Insecure Direct Object Reference
 
 ---
 
@@ -113,29 +114,18 @@ Ignore LOW severity findings unless extremely important.
 
 # OUTPUT FORMAT
 
-Return markdown in the following format.
+All narrative content goes inside the JSON `summary` field as markdown. Use these section headings inside the `summary` string (omit any section that has no findings):
 
-# Security Review Summary
+- `# Security Review Summary`
+- `# Critical Findings`
+- `# Additional Security Recommendations`
+- `# Overall Security Risk`
 
-# Critical Findings
+Inside each section, bullets must start with the file location in backticks: `` `path/to/file.ext:LINE` ``, followed by a short bold label and the explanation. When relevant, include a small fenced code block (3–6 lines max) of the changed lines.
 
-For each finding include:
+Capture every finding's structured details (severity, file, line, title, explanation, recommendation, codeSnippet) in the `findings` array of the JSON response (schema below) — do **not** duplicate the full structured detail in the `summary` text.
 
-- Severity
-- File
-- Risk
-- Explanation
-- Recommended Fix
-
-# Additional Security Recommendations
-
-# Overall Security Risk
-
-Use concise and professional language.
-
-Do not repeat the PR diff.
-
-Do not generate fake code fixes unless necessary.
+Use concise, professional language. Do not repeat the PR diff. Do not generate fake code fixes unless necessary.
 
 # RESPONSE REQUIREMENTS
 

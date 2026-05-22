@@ -89,9 +89,37 @@ steps:
 
     $diffPath = "$(Build.SourcesDirectory)/pr_diff.txt"
 
-    git diff origin/$targetBranch HEAD | Out-File -FilePath $diffPath -Encoding utf8
+    # PowerShell captures git stdout as a string[] — must join with newlines before writing.
+    # Three-dot diff = PR changes only.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
-    Get-Content $diffPath
+    $diffLines = @(git diff "origin/$targetBranch...HEAD" 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "git diff failed (exit $LASTEXITCODE): $($diffLines -join ' ')"
+    }
+
+    $diff = [string]::Join("`n", $diffLines)
+
+    # Valid no-op: no file changes vs merge-base (empty PR / already merged content).
+    if ($diff.Trim().Length -eq 0) {
+        Write-Warning "No file changes vs origin/$targetBranch — skipping AI review."
+        Write-Host "##vso[task.setvariable variable=AI_CODE_PILOT_SKIP]true"
+        [System.IO.File]::WriteAllText($diffPath, "", $utf8NoBom)
+        exit 0
+    }
+
+    # Non-empty output that is not a unified diff = broken extract step (fail fast).
+    if (-not ($diff -match '(?m)^diff --git ')) {
+        throw "git diff output is not a unified diff (expected lines starting with 'diff --git'). Check encoding and that git stdout was joined with newlines."
+    }
+
+    [System.IO.File]::WriteAllText($diffPath, $diff, $utf8NoBom)
+
+    $lineCount = ($diff -split "`r?`n").Count
+    $fileCount = ([regex]::Matches($diff, '(?m)^diff --git ')).Count
+    Write-Host "Wrote pr_diff.txt ($lineCount lines, $fileCount files, $((Get-Item $diffPath).Length) bytes)"
+    Write-Host "--- pr_diff.txt (first 5 lines) ---"
+    Get-Content $diffPath -TotalCount 5
 
   workingDirectory: '$(Build.SourcesDirectory)/$(Build.Repository.Name)'
   displayName: 'Extract PR Diff'
@@ -123,6 +151,7 @@ steps:
     npx ts-node scripts/review-dev-pr.ts
 
   displayName: 'Run AI Review'
+  condition: and(succeeded(), ne(variables['AI_CODE_PILOT_SKIP'], 'true'))
   env:
     BUILD_SOURCESDIRECTORY: $(Build.SourcesDirectory)
     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
